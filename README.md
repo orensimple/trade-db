@@ -16,6 +16,11 @@
 ## Документация
 В качестве первичного ключа(id) используется uuid(с точки зрения безопасности и анонимности данных)
 
+Индексы сделаны на колонки code для валют, инструментов, и тарифов (поиск по коду, константе)
+Полнотекстовый индекс в таблице пользователей(users) на поиск пользователя по префиксу имени и фамилии (необходим в рамках задачи по курсу Highloud)
+Индекс в таблице пользователей(users) по email для авторизации и регистрации
+Индекс по таблице инструментов(instruments) для поиска по определенному инструменту заказов со статусом новый
+
 ``` sql
 create table currencies
 (
@@ -23,10 +28,15 @@ create table currencies
     code         char(3)         not null,
     name         varchar(36)     not null,
     multiplicity int default 100 not null comment 'for kopecks and cents',
+    constraint currencies_code_uindex
+        unique (code),
     constraint currencies_id_uindex
         unique (id)
 )
     comment 'Table of currencies used';
+
+create index currencies_code_index
+    on currencies (code);
 
 alter table currencies
     add primary key (id);
@@ -51,35 +61,44 @@ create table instruments
         foreign key (currency_id) references currencies (id)
 );
 
+create index instruments_code_index
+    on instruments (code);
+
 alter table instruments
     add primary key (id);
 
 create table tariffs
 (
-    id         varchar(36)                         not null,
-    commission decimal   default 0                 not null comment 'service commission percentage',
-    name       varchar(256)                        not null,
-    created_at timestamp default CURRENT_TIMESTAMP not null,
-    updated_at timestamp                           null,
-    deleted_at timestamp                           null,
+    id         varchar(36)                             not null,
+    code       varchar(16)                             not null,
+    name       varchar(256)                            not null,
+    commission decimal(3, 2) default 0.00              not null comment 'service commission percentage',
+    created_at timestamp     default CURRENT_TIMESTAMP not null,
+    updated_at timestamp                               null,
+    deleted_at timestamp                               null,
+    constraint tariffs_code_uindex
+        unique (code),
     constraint tariffs_id_uindex
         unique (id)
 )
     comment 'Custom rates table';
+
+create index tariffs_code_index
+    on tariffs (code);
 
 alter table tariffs
     add primary key (id);
 
 create table accounts
 (
-    id          varchar(36)                         not null,
-    currency_id varchar(36)                         not null,
-    tariff_id   varchar(36)                         not null,
-    name        varchar(256)                        not null,
-    balance     decimal   default 0                 not null comment 'сurrent balance',
-    created_at  timestamp default CURRENT_TIMESTAMP not null,
-    updated_at  timestamp                           null,
-    deleted_at  timestamp                           null,
+    id          varchar(36)                             not null,
+    currency_id varchar(36)                             not null,
+    tariff_id   varchar(36)                             not null,
+    name        varchar(256)                            not null,
+    balance     decimal(3, 2) default 0.00              not null comment 'сurrent balance',
+    created_at  timestamp     default CURRENT_TIMESTAMP not null,
+    updated_at  timestamp                               null,
+    deleted_at  timestamp                               null,
     constraint accounts_id_uindex
         unique (id),
     constraint accounts_currencies_id_fk
@@ -97,10 +116,10 @@ create table orders
     id            varchar(36)                         not null,
     account_id    varchar(36)                         not null,
     instrument_id varchar(36)                         not null,
-    type          text                                not null comment 'type of order, for example: buy, sell (for simplicity, I did not put it in the directory)',
+    type          varchar(64)                         not null comment 'type of order, for example: buy, sell (for simplicity, I did not put it in the directory)',
     price         decimal                             not null comment 'the price at which the user wants to purchase the instrument',
     volume        int                                 not null comment 'number of lots',
-    status        text                                null comment 'order status, for example: completed, canceled (for simplicity, I did not put it into the directory)',
+    status        varchar(64)                         null comment 'order status, for example: completed, canceled (for simplicity, I did not put it into the directory)',
     created_at    timestamp default CURRENT_TIMESTAMP not null,
     updated_at    timestamp                           null,
     constraint orders_order_id_uindex
@@ -111,6 +130,12 @@ create table orders
         foreign key (instrument_id) references instruments (id)
 )
     comment 'User order table';
+
+create index orders_account_id_instrument_id_type_index
+    on orders (account_id, instrument_id, type);
+
+create index orders_instrument_id_type_status_created_at_index
+    on orders (instrument_id, type, status, created_at);
 
 alter table orders
     add primary key (id);
@@ -138,6 +163,7 @@ create table tariff_instruments
     id            varchar(36) not null,
     tariff_id     varchar(36) not null,
     instrument_id varchar(36) not null,
+    primary key (tariff_id, instrument_id),
     constraint tariff_instruments_id_uindex
         unique (id),
     constraint tariff_instruments_instruments_id_fk
@@ -146,13 +172,9 @@ create table tariff_instruments
         foreign key (tariff_id) references tariffs (id)
 );
 
-alter table tariff_instruments
-    add primary key (id);
-
 create table users
 (
-    id         varchar(36)                         not null
-        primary key,
+    id         varchar(36)                         not null,
     email      varchar(64)                         not null,
     password   varchar(64)                         not null,
     first_name varchar(32)                         not null,
@@ -163,15 +185,29 @@ create table users
     about      varchar(256)                        null comment 'additional information',
     created_at timestamp default CURRENT_TIMESTAMP not null,
     updated_at timestamp                           null,
-    deleted_at timestamp                           null
+    deleted_at timestamp                           null,
+    constraint users_id_uindex
+        unique (id)
+    constraint users_email_uindex
+        unique (email),
 )
     comment 'User data table';
+
+create index user_email_idx
+    on users (email);
+
+create fulltext index user_first_name_last_name_ftsidx
+    on users (first_name, last_name);
+
+alter table users
+    add primary key (id);
 
 create table user_accounts
 (
     id         varchar(36) not null,
     user_id    varchar(36) not null,
     account_id varchar(36) not null,
+    primary key (user_id, account_id),
     constraint user_accounts_id_uindex
         unique (id),
     constraint user_accounts_accounts_id_fk
@@ -179,12 +215,6 @@ create table user_accounts
     constraint user_accounts_users_id_fk
         foreign key (user_id) references users (id)
 );
-
-alter table user_accounts
-    add primary key (id);
-
-create index user_email_idx
-    on users (email);
 
 ```
 
